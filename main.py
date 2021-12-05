@@ -8,7 +8,9 @@ class Suit(Enum):
     YELLOW = 2
     GREEN = 3
     BLUE = 4
-    RAINBOW = 5
+
+
+#     RAINBOW = 5
 
 
 class Card:
@@ -60,7 +62,6 @@ class RandomCardPlayer(Player):
     def add_card(self, card):
         if not card:
             return
-        Player.add_card(self, card)
         self.cards.append(card)
 
     def take_turn(self):
@@ -117,9 +118,13 @@ class DirectHintPlayer(Player):
         else:
             self.discard_from_hand()
 
-    def find_and_give_hint(self):
+    def find_and_give_hint(self, players=None):
+        if not players:
+            players = self.game.players
         needed_cards = self.game.get_needed_cards()
-        for p in self.game.players:
+        for p in players:
+            if p == self:
+                continue
             for card_to_discard in p.cards_to_discard:
                 if card_to_discard in needed_cards:
                     # Numeric hints are generally better than suit hints, so we give that first
@@ -183,6 +188,31 @@ class DirectHintPlayer(Player):
         self.game.discard_card(card)
 
 
+class HelpfulDirectPlayer(DirectHintPlayer):
+    def take_turn(self):
+        # Adjust cards_to_play based on all information gotten from hits
+        for i, card_to_discard in enumerate(self.cards_to_discard):
+            for needed_card in self.game.get_needed_cards():
+                if (
+                    card_to_discard.hinted_suit == needed_card.suit
+                    and card_to_discard.hinted_value == needed_card.value
+                ):
+                    self.move_card_to_play(i)
+
+        # Make a play
+        needy_players = [p for p in self.game.players if not p.cards_to_play]
+        if self.game.hints > 0 and self.find_and_give_hint(needy_players):
+            # find_and_give_hint already gives the hint, so there's nothing left to do
+            pass
+        elif self.cards_to_play:
+            self.play_from_hand()
+        elif self.game.hints > 0 and self.find_and_give_hint():
+            # find_and_give_hint already gives the hint, so there's nothing left to do
+            pass
+        else:
+            self.discard_from_hand()
+
+
 class Game:
     def __init__(self, num_players, strategy, logging_enabled=True):
         self.logging_enabled = logging_enabled
@@ -213,6 +243,8 @@ class Game:
                 players.append(RandomCardPlayer(self, i))
             elif strategy == "DIRECT_HINT":
                 players.append(DirectHintPlayer(self, i))
+            elif strategy == "HELPFUL_DIRECT":
+                players.append(HelpfulDirectPlayer(self, i))
             else:
                 assert False
         self.players = players
@@ -336,9 +368,12 @@ Current player: {}
             print(s)
 
 
-def run_multiple(num_games, num_players, strategy):
-    score_total = 0
-    for i in range(num_games):
-        g = Game(num_players, strategy, False)
-        score_total += g.run_game()
-    return score_total / num_games
+def run_multiple(num_games, strategy):
+    results = ""
+    for i in range(2, 5):
+        score_total = 0
+        for j in range(num_games):
+            g = Game(i, strategy, False)
+            score_total += g.run_game()
+        results += "{} Player: {} \n".format(i, score_total / num_games)
+    return results
