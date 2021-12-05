@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 import random
+import sys
 
 from numpy import mean, percentile, std
 from tabulate import tabulate
@@ -90,7 +91,7 @@ class Player:
         pass
 
 
-class RandomCardPlayer(Player):
+class FirstCardPlayer(Player):
     def __init__(self, game, player_number):
         Player.__init__(self, game, player_number)
         self.cards = []
@@ -108,10 +109,7 @@ class RandomCardPlayer(Player):
         self.cards.append(card)
 
     def take_turn(self):
-        self.play_from_hand(0)
-
-    def play_from_hand(self, card_index):
-        card = self.cards.pop(card_index)
+        card = self.cards.pop(0)
         self.game.draw(self)
         self.game.play_card(card)
 
@@ -241,10 +239,20 @@ class Game:
         use_rainbow=False,
         should_print=True,
         log_file=None,
+        seed=None,
     ):
+        self.num_players = num_players
+        self.strategy = strategy
         self.use_rainbow = use_rainbow
         self.should_print = should_print
         self.log_file = log_file
+
+        if seed:
+            self.seed = seed
+        else:
+            random.seed()
+            self.seed = random.randint(0, sys.maxsize - 1)
+        random.seed(self.seed)
 
         self.current_turn = 0
         self.turn_timer = num_players
@@ -256,8 +264,7 @@ class Game:
             self.played_cards[suit] = []
         self.discarded_cards = []
 
-        self.num_players = num_players
-        self.init_players(num_players, strategy)
+        self.init_players(self.num_players, self.strategy)
         self.current_player = 0
 
         self.init_deck()
@@ -269,8 +276,8 @@ class Game:
     def init_players(self, num_players, strategy):
         players = []
         for i in range(num_players):
-            if strategy == "RANDOM_CARD":
-                players.append(RandomCardPlayer(self, i))
+            if strategy == "FIRST_CARD":
+                players.append(FirstCardPlayer(self, i))
             elif strategy == "DIRECT_HINT":
                 players.append(DirectHintPlayer(self, i))
             elif strategy == "HELPFUL_DIRECT":
@@ -368,6 +375,20 @@ class Game:
         player.take_turn()
 
     def run_game(self):
+        self.log_string(
+            """
+============================================================
+                        Starting game
+                 Seed {} | {} Player | {} {}
+============================================================
+        """.format(
+                self.seed,
+                self.num_players,
+                self.strategy,
+                "with rainbow" if self.use_rainbow else "no rainbow",
+            )
+        )
+
         while self.fails < 3 and self.turn_timer >= 0:
             self.run_turn(self.players[self.current_player], self.current_turn)
             if not self.deck:
@@ -455,24 +476,15 @@ Simulations for {} {}
                 "with rainbow" if use_rainbow else "no rainbow",
                 log_file,
                 should_print=True,
-            ), log_file, should_print=True
+            ),
+            log_file,
+            should_print=True,
         )
 
         results = []
         for i in range(player_min, player_max + 1):
             scores = []
-            for j in range(num_games):
-                log_string(
-                    """
-============================================================
-    {} Player | {} {} | Game {}
-============================================================
-        """.format(
-                        i, strategy, "with rainbow" if use_rainbow else "no rainbow", j
-                    ),
-                    log_file,
-                    should_print=False,
-                )
+            for _ in range(num_games):
                 g = Game(
                     i,
                     strategy,
