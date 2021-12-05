@@ -1,36 +1,66 @@
+from datetime import datetime
 from enum import Enum
 import random
 
+from numpy import mean, percentile, std
+from tabulate import tabulate
+
+
+LOG_PATH = "/Users/reed/hanabi/game_logs/"
+
 
 class Suit(Enum):
-    WHITE = 0
-    RED = 1
-    YELLOW = 2
-    GREEN = 3
-    BLUE = 4
-    RAINBOW = 5
+    WHITE = "WHITE"
+    RED = "RED"
+    YELLOW = "YELLOW"
+    GREEN = "GREEN"
+    BLUE = "BLUE"
+    RAINBOW = "RAINBOW"
 
 
 class Card:
-    def __init__(self, suit, value):
+    def __init__(self, suit, number):
         self.suit = suit
-        self.value = value
+        self.number = number
         self.hinted_suit = None
-        self.hinted_value = None
+        self.hinted_number = None
 
     def __repr__(self):
-        return "{} {}".format(self.suit, self.value)
+        return "{} {}".format(self.suit, self.number)
 
     def __eq__(self, other):
-        return self.suit == other.suit and self.value == other.value
+        return self.suit == other.suit and self.number == other.number
 
-    def set_hinted_suit(self, suit):
-        assert (self.hinted_suit is None) or (self.hinted_suit == suit)
-        self.hinted_suit = suit
+    def match_hint(self, hint):
+        if hint.type == Hint.TYPE_SUIT:
+            return self.suit == hint.value
+        elif hint.type == Hint.TYPE_NUMBER:
+            return self.number == hint.value
 
-    def set_hinted_value(self, value):
-        assert (self.hinted_value is None) or (self.hinted_value == value)
-        self.hinted_value = value
+    def apply_hint(self, hint):
+        if hint.type == Hint.TYPE_SUIT and self.suit == hint.value:
+            assert (self.hinted_suit is None) or (self.hinted_suit == hint.value)
+            self.hinted_suit = hint.value
+            return True
+
+        if hint.type == Hint.TYPE_NUMBER and self.number == hint.value:
+            assert (self.hinted_number is None) or (self.hinted_number == hint.value)
+            self.hinted_number = hint.value
+            return True
+
+        return False
+
+
+class Hint:
+    TYPE_SUIT = "TYPE_SUIT"
+    TYPE_NUMBER = "TYPE_NUMBER"
+
+    def __init__(self, player, type, value):
+        assert type == Hint.TYPE_SUIT or type == Hint.TYPE_NUMBER
+
+        self.player = player
+        self.type = type
+        self.value = value
 
 
 class Player:
@@ -42,7 +72,21 @@ class Player:
         s = "Player {}\n".format(self.player_number)
         return s
 
+    def add_card(self, card):
+        if not card:
+            return
+        self._add_card(card)
+
+    def _add_card(self, card):
+        pass
+
+    def get_hand(self):
+        pass
+
     def take_turn(self):
+        pass
+
+    def receive_hint(self, hint):
         pass
 
 
@@ -57,9 +101,10 @@ class RandomCardPlayer(Player):
             s += "  - {}\n".format(c)
         return s
 
-    def add_card(self, card):
-        if not card:
-            return
+    def get_hand(self):
+        return self.cards
+
+    def _add_card(self, card):
         self.cards.append(card)
 
     def take_turn(self):
@@ -68,7 +113,6 @@ class RandomCardPlayer(Player):
     def play_from_hand(self, card_index):
         card = self.cards.pop(card_index)
         self.game.draw(self)
-        self.game.log_string("Player {} plays {}".format(self.player_number, card))
         self.game.play_card(card)
 
 
@@ -83,15 +127,15 @@ class DirectHintPlayer(Player):
         s += "  - Cards to play\n"
         for c in self.cards_to_play:
             s += "    - {}\n".format(c)
-        s += " - Cards to discard\n"
+        s += "  - Cards to discard\n"
         for c in self.cards_to_discard:
             s += "    - {}\n".format(c)
         return s
 
-    def add_card(self, card):
-        if not card:
-            return
+    def get_hand(self):
+        return self.cards_to_play + self.cards_to_discard
 
+    def _add_card(self, card):
         self.cards_to_discard.append(card)
 
     def move_card_to_play(self, i):
@@ -103,86 +147,64 @@ class DirectHintPlayer(Player):
             for needed_card in self.game.get_needed_cards():
                 if (
                     card_to_discard.hinted_suit == needed_card.suit
-                    and card_to_discard.hinted_value == needed_card.value
+                    and card_to_discard.hinted_number == needed_card.number
                 ):
                     self.move_card_to_play(i)
 
         # Make a play
+        possible_hints = self.find_hints(self.game.players)
+
         if self.cards_to_play:
             self.play_from_hand()
-        elif self.game.hints > 0 and self.find_and_give_hint():
-            # find_and_give_hint already gives the hint, so there's nothing left to do
-            pass
+        elif self.game.hints > 0 and possible_hints:
+            self.game.give_hint(possible_hints[0])
         else:
             self.discard_from_hand()
 
-    def find_and_give_hint(self, players=None):
-        if not players:
-            players = self.game.players
+    def find_hints(self, players):
+        hints = []
         needed_cards = self.game.get_needed_cards()
+
         for p in players:
             if p == self:
                 continue
             for card_to_discard in p.cards_to_discard:
-                if card_to_discard in needed_cards:
-                    # Numeric hints are generally better than suit hints, so we give that first
-                    matching_values = [
-                        c
-                        for c in p.cards_to_discard
-                        if c.value == card_to_discard.value
-                    ]
-                    # We only want to give a hint if the first match should be played
-                    if card_to_discard == matching_values[0]:
-                        p.take_value_hint(card_to_discard.value)
-                        return True
+                if card_to_discard not in needed_cards:
+                    continue
 
-                    matching_suits = [
-                        c for c in p.cards_to_discard if c.suit == card_to_discard.suit
-                    ]
-                    if card_to_discard == matching_suits[0]:
-                        p.take_suit_hint(card_to_discard.suit)
-                        return True
-        return False
+                matching_suits = [
+                    c for c in p.cards_to_discard if c.suit == card_to_discard.suit
+                ]
 
-    def evaluate_hint(player, needed_card, game):
-        number_cards = [
-            c for c in player.cards_to_discard if c.value == needed_card.value
-        ]
-        if number_cards and number_cards[0] == needed_card:
-            pass
+                # We only want to give a hint if the first match should be played
+                if card_to_discard == matching_suits[0]:
+                    hints.append(Hint(p, Hint.TYPE_SUIT, card_to_discard.suit))
 
-    def take_suit_hint(self, suit):
+                matching_numbers = [
+                    c for c in p.cards_to_discard if c.number == card_to_discard.number
+                ]
+
+                # We only want to give a hint if the first match should be played
+                if card_to_discard == matching_numbers[0]:
+                    hints.append(Hint(p, Hint.TYPE_NUMBER, card_to_discard.number))
+        return hints
+
+    def receive_hint(self, hint):
         matched_card = False
         for i, c in enumerate(self.cards_to_discard):
-            if c.suit != suit:
-                continue
-
-            c.set_hinted_suit(suit)
-            if not matched_card:
-                matched_card = True
-                self.move_card_to_play(i)
-
-    def take_value_hint(self, value):
-        matched_card = False
-        for i, c in enumerate(self.cards_to_discard):
-            if c.value != value:
-                continue
-
-            c.set_hinted_value(value)
-            if not matched_card:
+            hint_applies = c.apply_hint(hint)
+            if not matched_card and hint_applies:
                 matched_card = True
                 self.move_card_to_play(i)
 
     def play_from_hand(self):
         card = self.cards_to_play.pop(0)
         self.game.draw(self)
-        self.game.log_string("Player {} plays {}".format(self.player_number, card))
         self.game.play_card(card)
 
     def discard_from_hand(self):
         card = self.cards_to_discard.pop(0)
         self.game.draw(self)
-        self.game.log_string("Player {} discards {}".format(self.player_number, card))
         self.game.discard_card(card)
 
 
@@ -193,7 +215,7 @@ class HelpfulDirectPlayer(DirectHintPlayer):
             for needed_card in self.game.get_needed_cards():
                 if (
                     card_to_discard.hinted_suit == needed_card.suit
-                    and card_to_discard.hinted_value == needed_card.value
+                    and card_to_discard.hinted_number == needed_card.number
                 ):
                     self.move_card_to_play(i)
 
@@ -212,12 +234,20 @@ class HelpfulDirectPlayer(DirectHintPlayer):
 
 
 class Game:
-    def __init__(self, num_players, strategy, use_rainbow=False, logging_enabled=True):
-        self.logging_enabled = logging_enabled
+    def __init__(
+        self,
+        num_players,
+        strategy,
+        use_rainbow=False,
+        should_print=True,
+        log_file=None,
+    ):
         self.use_rainbow = use_rainbow
+        self.should_print = should_print
+        self.log_file = log_file
+
         self.current_turn = 0
         self.turn_timer = num_players
-
         self.hints = 8
         self.fails = 0
 
@@ -272,11 +302,11 @@ class Game:
 
     def play_card(self, card):
         played_stack = self.played_cards[card.suit]
-        last_value = played_stack[-1].value if played_stack else 0
+        last_number = played_stack[-1].number if played_stack else 0
 
-        if last_value == card.value - 1:
+        if last_number == card.number - 1:
             played_stack.append(card)
-            if card.value == 5:
+            if card.number == 5:
                 self.increment_hints
 
             self.log_string("Successfully played {}".format(card))
@@ -285,8 +315,18 @@ class Game:
             self.log_string("Failed to play {}".format(card))
 
     def discard_card(self, card):
+        self.log_string("Discarded {}".format(card))
         self.discarded_cards.append(card)
         self.increment_hints()
+
+    def give_hint(self, hint):
+        self.log_string(
+            "{} hint to player {}: {}".format(
+                hint.type, hint.player.player_number, hint.value
+            )
+        )
+        hint.player.receive_hint(hint)
+        self.decrement_hints()
 
     def increment_hints(self):
         if self.hints < 8:
@@ -305,40 +345,54 @@ class Game:
     def get_needed_cards(self):
         needed_cards = []
         for s in self.get_suits():
-            last_value = self.played_cards[s][-1].value if self.played_cards[s] else 0
-            if last_value == 5:
+            last_number = self.played_cards[s][-1].number if self.played_cards[s] else 0
+            if last_number == 5:
                 break
-            needed_cards.append(Card(s, last_value + 1))
+            needed_cards.append(Card(s, last_number + 1))
         return needed_cards
 
     def get_suits(self):
         return [s for s in Suit if self.use_rainbow or s != Suit.RAINBOW]
 
-    def run_turn(self, player):
+    def run_turn(self, player, turn_number):
+        self.log_string(
+            """
+==============================
+            Turn {}
+==============================
+""".format(
+                turn_number
+            )
+        )
         self.log_string(self.repr_global_state())
         player.take_turn()
 
     def run_game(self):
         while self.fails < 3 and self.turn_timer >= 0:
-            self.run_turn(self.players[self.current_player])
-            self.advance_player()
-            self.current_turn += 1
+            self.run_turn(self.players[self.current_player], self.current_turn)
             if not self.deck:
                 self.turn_timer -= 1
 
+            self.advance_player()
+            self.current_turn += 1
+
+        self.log_string(
+            """
+==============================
+           Game Over
+==============================
+"""
+        )
         self.log_string(self.repr_global_state())
 
-        score = self.get_score()
-        if score == 5 * len(Suit):
-            self.log_string("Perfect score!")
-        elif self.fails >= 3:
+        if self.fails >= 3:
             self.log_string("You hit three fails, you lose! Good day sir.")
         elif len(self.deck) <= 0:
             self.log_string("Out of cards")
+        else:
+            assert False
 
-        self.log_string("Game over")
-
-        return score
+        return self.get_score()
 
     def repr_played_cards(self):
         repr = "Played cards:\n"
@@ -346,9 +400,11 @@ class Game:
             repr += "  - {}: {}\n".format(str(s), len(self.played_cards[s]))
         return repr
 
+    def repr_players(self):
+        return "\n".join([str(p) for p in self.players])
+
     def repr_global_state(self):
         return """
------ Turn {} Game State -----
 Hints: {}
 Fails: {}
 Total score: {}
@@ -356,27 +412,103 @@ Current player: {}
 
 {}
 
-
+{}
         """.format(
-            self.current_turn,
             self.hints,
             self.fails,
             self.get_score(),
             self.current_player,
             self.repr_played_cards(),
+            self.repr_players(),
         )
 
     def log_string(self, s):
-        if self.logging_enabled:
-            print(s)
+        log_string(s, self.log_file, self.should_print)
 
 
-def run_multiple(num_games, strategy, use_rainbow=False, player_min=2, player_max=4):
-    results = ""
-    for i in range(player_min, player_max + 1):
-        score_total = 0
-        for j in range(num_games):
-            g = Game(i, strategy, use_rainbow, logging_enabled=False)
-            score_total += g.run_game()
-        results += "{} Player: {} \n".format(i, score_total / num_games)
-    return results
+def run_simulations(
+    num_games,
+    strategies,
+    create_logs=False,
+    use_rainbow=False,
+    player_min=2,
+    player_max=4,
+):
+    PERFECT_SCORE = (6 if use_rainbow else 5) * 5
+
+    log_file_name = (
+        LOG_PATH + "hanabi_log_" + datetime.now().isoformat(timespec="seconds") + ".txt"
+    )
+
+    log_file = None
+    if create_logs:
+        log_file = open(log_file_name, "w")
+
+    for strategy in strategies:
+        log_string(
+            """
+===========================================================================
+Simulations for {} {}
+===========================================================================
+            """.format(
+                strategy,
+                "with rainbow" if use_rainbow else "no rainbow",
+                log_file,
+                should_print=True,
+            ), log_file, should_print=True
+        )
+
+        results = []
+        for i in range(player_min, player_max + 1):
+            scores = []
+            for j in range(num_games):
+                log_string(
+                    """
+============================================================
+    {} Player | {} {} | Game {}
+============================================================
+        """.format(
+                        i, strategy, "with rainbow" if use_rainbow else "no rainbow", j
+                    ),
+                    log_file,
+                    should_print=False,
+                )
+                g = Game(
+                    i,
+                    strategy,
+                    use_rainbow,
+                    should_print=False,
+                    log_file=log_file,
+                )
+                scores.append(g.run_game())
+            results.append(
+                [
+                    i,
+                    round(mean(scores), 2),
+                    percentile(scores, 10),
+                    percentile(scores, 50),
+                    percentile(scores, 90),
+                    scores.count(PERFECT_SCORE),
+                    round(std(scores), 2),
+                ]
+            )
+
+        result_table = (
+            tabulate(
+                results,
+                headers=["Players", "Mean", "P10", "P50", "P90", "Perfect", "std"],
+                tablefmt="pretty",
+            )
+            + "\n"
+        )
+        log_string(result_table, log_file, should_print=True)
+
+    if log_file:
+        log_file.close()
+
+
+def log_string(s, log_file, should_print):
+    if log_file:
+        log_file.write(s + "\n")
+    if should_print:
+        print(s)
