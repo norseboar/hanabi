@@ -8,9 +8,7 @@ class Suit(Enum):
     YELLOW = 2
     GREEN = 3
     BLUE = 4
-
-
-#     RAINBOW = 5
+    RAINBOW = 5
 
 
 class Card:
@@ -214,15 +212,17 @@ class HelpfulDirectPlayer(DirectHintPlayer):
 
 
 class Game:
-    def __init__(self, num_players, strategy, logging_enabled=True):
+    def __init__(self, num_players, strategy, use_rainbow=False, logging_enabled=True):
         self.logging_enabled = logging_enabled
-        self.hints = 8
-        self.fails = 0
+        self.use_rainbow = use_rainbow
         self.current_turn = 0
         self.turn_timer = num_players
 
+        self.hints = 8
+        self.fails = 0
+
         self.played_cards = {}
-        for suit in Suit:
+        for suit in self.get_suits():
             self.played_cards[suit] = []
         self.discarded_cards = []
 
@@ -251,7 +251,7 @@ class Game:
 
     def init_deck(self):
         deck = []
-        for suit in Suit:
+        for suit in self.get_suits():
             for i in range(3):
                 deck.append(Card(suit, 1))
             for i in range(2):
@@ -298,18 +298,21 @@ class Game:
 
     def get_score(self):
         score = 0
-        for s in Suit:
+        for s in self.get_suits():
             score += len(self.played_cards[s])
         return score
 
     def get_needed_cards(self):
         needed_cards = []
-        for s in Suit:
+        for s in self.get_suits():
             last_value = self.played_cards[s][-1].value if self.played_cards[s] else 0
             if last_value == 5:
                 break
             needed_cards.append(Card(s, last_value + 1))
         return needed_cards
+
+    def get_suits(self):
+        return [s for s in Suit if self.use_rainbow or s != Suit.RAINBOW]
 
     def run_turn(self, player):
         self.log_string(self.repr_global_state())
@@ -339,7 +342,7 @@ class Game:
 
     def repr_played_cards(self):
         repr = "Played cards:\n"
-        for s in Suit:
+        for s in self.get_suits():
             repr += "  - {}: {}\n".format(str(s), len(self.played_cards[s]))
         return repr
 
@@ -368,12 +371,12 @@ Current player: {}
             print(s)
 
 
-def run_multiple(num_games, strategy):
+def run_multiple(num_games, strategy, use_rainbow=False, player_min=2, player_max=4):
     results = ""
-    for i in range(2, 5):
+    for i in range(player_min, player_max + 1):
         score_total = 0
         for j in range(num_games):
-            g = Game(i, strategy, False)
+            g = Game(i, strategy, use_rainbow, logging_enabled=False)
             score_total += g.run_game()
         results += "{} Player: {} \n".format(i, score_total / num_games)
     return results
