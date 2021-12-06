@@ -6,310 +6,18 @@ import sys
 from numpy import mean, percentile, std
 from tabulate import tabulate
 
+from cards import Card, Suit
+from players import (
+    FirstCardPlayer,
+    DirectHintPlayer,
+    HelpfulDirectPlayer,
+    SmartHints1Player,
+    SmartHints2Player,
+    SmartHints3Player,
+    SmartHints4Player,
+)
 
 LOG_PATH = "/Users/reed/hanabi/game_logs/"
-
-
-def reorder_queue(queue, indexes_to_move_to_front):
-    queue_front = []
-    queue_back = []
-
-    for i, c in enumerate(queue):
-        if i in indexes_to_move_to_front:
-            queue_front.append(c)
-        else:
-            queue_back.append(c)
-    return queue_front + queue_back
-
-
-class Suit(Enum):
-    WHITE = "WHITE"
-    RED = "RED"
-    YELLOW = "YELLOW"
-    GREEN = "GREEN"
-    BLUE = "BLUE"
-    RAINBOW = "RAINBOW"
-
-
-class Card:
-    def __init__(self, suit, number):
-        self.suit = suit
-        self.number = number
-        self.hinted_suit = None
-        self.hinted_number = None
-
-    def __repr__(self):
-        return "{} {}".format(self.suit, self.number)
-
-    def __eq__(self, other):
-        return self.suit == other.suit and self.number == other.number
-
-    def match_hint(self, hint):
-        if hint.type == Hint.TYPE_SUIT:
-            return self.suit == hint.value
-        elif hint.type == Hint.TYPE_NUMBER:
-            return self.number == hint.value
-
-    def apply_hint(self, hint):
-        if hint.type == Hint.TYPE_SUIT and self.suit == hint.value:
-            assert (self.hinted_suit is None) or (self.hinted_suit == hint.value)
-            self.hinted_suit = hint.value
-            return True
-
-        if hint.type == Hint.TYPE_NUMBER and self.number == hint.value:
-            assert (self.hinted_number is None) or (self.hinted_number == hint.value)
-            self.hinted_number = hint.value
-            return True
-
-        return False
-
-
-class Hint:
-    TYPE_SUIT = "TYPE_SUIT"
-    TYPE_NUMBER = "TYPE_NUMBER"
-
-    def __init__(self, player, type, value):
-        assert type == Hint.TYPE_SUIT or type == Hint.TYPE_NUMBER
-
-        self.player = player
-        self.type = type
-        self.value = value
-
-
-class Player:
-    def __init__(self, game, player_number):
-        self.game = game
-        self.player_number = player_number
-
-    def __repr__(self):
-        s = "Player {}\n".format(self.player_number)
-        return s
-
-    def add_card(self, card):
-        if not card:
-            return
-        self._add_card(card)
-
-    def _add_card(self, card):
-        pass
-
-    def get_hand(self):
-        pass
-
-    def take_turn(self):
-        pass
-
-    def receive_hint(self, hint):
-        pass
-
-
-class FirstCardPlayer(Player):
-    def __init__(self, game, player_number):
-        Player.__init__(self, game, player_number)
-        self.cards = []
-
-    def __repr__(self):
-        s = Player.__repr__(self)
-        for c in self.cards:
-            s += "  - {}\n".format(c)
-        return s
-
-    def get_hand(self):
-        return self.cards
-
-    def _add_card(self, card):
-        self.cards.append(card)
-
-    def take_turn(self):
-        card = self.cards.pop(0)
-        self.game.draw(self)
-        self.game.play_card(card)
-
-
-class DirectHintPlayer(Player):
-    DISCARD_TO_PLAY = "DISCARD_TO_PLAY"
-    PLAY_TO_DISCARD = "PLAY_TO_DISCARD"
-
-    def __init__(self, game, player_number):
-        Player.__init__(self, game, player_number)
-        self.play_queue = []
-        self.discard_queue = []
-
-    def __repr__(self):
-        s = Player.__repr__(self)
-        s += "  - Cards to play\n"
-        for c in self.play_queue:
-            s += "    - {}\n".format(c)
-        s += "  - Cards to discard\n"
-        for c in self.discard_queue:
-            s += "    - {}\n".format(c)
-        return s
-
-    def get_hand(self):
-        return self.play_queue + self.discard_queue
-
-    def _add_card(self, card):
-        self.discard_queue.append(card)
-
-    def move_cards_between_queues(self, indexes, move_type):
-        assert move_type in [self.DISCARD_TO_PLAY, self.PLAY_TO_DISCARD]
-
-        # Create a new immutable list to avoid index iteration issues
-        new_src_queue = []
-
-        src_queue = None
-        dest_queue = None
-        if move_type == self.DISCARD_TO_PLAY:
-            src_queue = self.discard_queue
-            dest_queue = self.play_queue
-        elif move_type == self.PLAY_TO_DISCARD:
-            src_queue = self.play_queue
-            dest_queue = self.discard_queue
-
-        for i, _ in enumerate(src_queue):
-            if i in indexes:
-                dest_queue.insert(0, src_queue[i])
-            else:
-                new_src_queue.append(src_queue[i])
-
-        if move_type == self.DISCARD_TO_PLAY:
-            self.discard_queue = new_src_queue
-        elif move_type == self.PLAY_TO_DISCARD:
-            self.play_queue = new_src_queue
-
-    def take_turn(self):
-        self.adjust_cards()
-
-        possible_hints = self.find_hints(self.game.players)
-
-        if self.play_queue:
-            self.play_from_hand()
-        elif self.game.hints > 0 and possible_hints:
-            self.game.give_hint(possible_hints[0])
-        else:
-            self.discard_from_hand()
-
-    def adjust_cards(self):
-        # Move any cards we know can be played to the play queue
-        indexes_to_move_to_play = []
-        for i, card_to_discard in enumerate(self.discard_queue):
-            for needed_card in self.game.get_needed_cards():
-                if (
-                    card_to_discard.hinted_suit == needed_card.suit
-                    and card_to_discard.hinted_number == needed_card.number
-                ):
-                    indexes_to_move_to_play.append(i)
-        self.move_cards_between_queues(indexes_to_move_to_play, self.DISCARD_TO_PLAY)
-
-        # Move any cards we know we cannot play to the discard queue
-        indexes_to_move_to_discard = []
-        for i, card_to_play in enumerate(self.play_queue):
-            if not self.is_card_potentially_playable(card_to_play):
-                indexes_to_move_to_discard.append(i)
-        self.move_cards_between_queues(indexes_to_move_to_discard, self.PLAY_TO_DISCARD)
-
-        # Move any cards we know are bad to the front of the discard
-        indexes_to_move_to_front = []
-        for i, card_to_discard in enumerate(self.discard_queue):
-            if not self.is_card_potentially_playable(card_to_discard):
-                indexes_to_move_to_front.append(i)
-        self.discard_queue = reorder_queue(self.discard_queue, indexes_to_move_to_front)
-
-    def is_card_potentially_playable(self, card):
-        if card.hinted_suit and card.hinted_number:
-            return self.game.is_card_playable(card)
-
-        elif card.hinted_suit:
-            played_stack = self.game.played_cards[card.suit]
-            last_number = played_stack[-1].number if played_stack else 0
-
-            return last_number < 5
-
-        elif card.hinted_number:
-            playable_numbers = []
-            for suit in self.game.get_suits():
-                played_stack = self.game.played_cards[card.suit]
-                if played_stack:
-                    last_number = played_stack[-1].number
-                    if last_number < 5:
-                        playable_numbers.append(last_number + 1)
-                else:
-                    playable_numbers.append(1)
-            return card.number in playable_numbers
-
-        else:
-            return True
-
-    def find_hints(self, players):
-        hints = []
-        needed_cards = self.game.get_needed_cards()
-
-        all_play_queue = []
-        for p in players:
-            all_play_queue += p.play_queue
-
-        for p in players:
-            if p == self:
-                continue
-            for card_to_discard in p.discard_queue:
-                if (
-                    card_to_discard in all_play_queue
-                    or card_to_discard not in needed_cards
-                ):
-                    continue
-
-                matching_suits = [
-                    c for c in p.discard_queue if c.suit == card_to_discard.suit
-                ]
-
-                # We only want to give a hint if the first match should be played
-                if card_to_discard == matching_suits[0]:
-                    hints.append(Hint(p, Hint.TYPE_SUIT, card_to_discard.suit))
-
-                matching_numbers = [
-                    c for c in p.discard_queue if c.number == card_to_discard.number
-                ]
-
-                # We only want to give a hint if the first match should be played
-                if card_to_discard == matching_numbers[0]:
-                    hints.append(Hint(p, Hint.TYPE_NUMBER, card_to_discard.number))
-        return hints
-
-    def receive_hint(self, hint):
-        matched_card = False
-        for i, c in enumerate(self.discard_queue):
-            hint_applies = c.apply_hint(hint)
-            if not matched_card and hint_applies:
-                matched_card = True
-                self.move_cards_between_queues([i], self.DISCARD_TO_PLAY)
-
-    def play_from_hand(self):
-        card = self.play_queue.pop(0)
-        self.game.draw(self)
-        self.game.play_card(card)
-
-    def discard_from_hand(self):
-        card = self.discard_queue.pop(0)
-        self.game.draw(self)
-        self.game.discard_card(card)
-
-
-class HelpfulDirectPlayer(DirectHintPlayer):
-    def take_turn(self):
-        self.adjust_cards()
-
-        needy_players = [p for p in self.game.players if not p.play_queue]
-        needy_hints = self.find_hints(needy_players)
-        all_hints = self.find_hints(self.game.players)
-
-        if self.game.hints > 0 and needy_hints:
-            self.game.give_hint(needy_hints[0])
-        elif self.play_queue:
-            self.play_from_hand()
-        elif self.game.hints > 0 and all_hints:
-            self.game.give_hint(all_hints[0])
-        else:
-            self.discard_from_hand()
 
 
 class Game:
@@ -327,6 +35,8 @@ class Game:
         self.use_rainbow = use_rainbow
         self.should_print = should_print
         self.log_file = log_file
+        self.should_log = self.should_print or self.log_file
+        self.suits = [s for s in Suit if self.use_rainbow or s != Suit.RAINBOW]
 
         if seed:
             self.seed = seed
@@ -339,9 +49,10 @@ class Game:
         self.turn_timer = num_players
         self.hints = 8
         self.fails = 0
+        self.wasted_discards = 0
 
         self.played_cards = {}
-        for suit in self.get_suits():
+        for suit in self.suits:
             self.played_cards[suit] = []
         self.discarded_cards = []
 
@@ -363,13 +74,22 @@ class Game:
                 players.append(DirectHintPlayer(self, i))
             elif strategy == "HELPFUL_DIRECT":
                 players.append(HelpfulDirectPlayer(self, i))
+            elif strategy == "SMART_HINT_1":
+                players.append(SmartHints1Player(self, i))
+            elif strategy == "SMART_HINT_2":
+                players.append(SmartHints2Player(self, i))
+            elif strategy == "SMART_HINT_3":
+                players.append(SmartHints3Player(self, i))
+            elif strategy == "SMART_HINT_4":
+                players.append(SmartHints4Player(self, i))
             else:
                 assert False
         self.players = players
 
     def init_deck(self):
         deck = []
-        for suit in self.get_suits():
+        self.cards_remaining = {}
+        for suit in self.suits:
             for i in range(3):
                 deck.append(Card(suit, 1))
             for i in range(2):
@@ -377,6 +97,7 @@ class Game:
                 deck.append(Card(suit, 3))
                 deck.append(Card(suit, 4))
             deck.append(Card(suit, 5))
+            self.cards_remaining.update({suit: {1: 3, 2: 2, 3: 2, 4: 2, 5: 1}})
         random.shuffle(deck)
 
         self.deck = deck
@@ -408,8 +129,11 @@ class Game:
 
     def discard_card(self, card):
         self.log_string("Discarded {}".format(card))
+        if self.hints == 8:
+            self.wasted_discards += 1
         self.discarded_cards.append(card)
         self.increment_hints()
+        self.cards_remaining[card.suit][card.number] -= 1
 
     def give_hint(self, hint):
         self.log_string(
@@ -430,21 +154,18 @@ class Game:
 
     def get_score(self):
         score = 0
-        for s in self.get_suits():
+        for s in self.suits:
             score += len(self.played_cards[s])
         return score
 
     def get_needed_cards(self):
         needed_cards = []
-        for s in self.get_suits():
+        for s in self.suits:
             last_number = self.played_cards[s][-1].number if self.played_cards[s] else 0
             if last_number == 5:
                 break
             needed_cards.append(Card(s, last_number + 1))
         return needed_cards
-
-    def get_suits(self):
-        return [s for s in Suit if self.use_rainbow or s != Suit.RAINBOW]
 
     def run_turn(self, player, turn_number):
         self.log_string(
@@ -456,7 +177,8 @@ class Game:
                 turn_number
             )
         )
-        self.log_string(self.repr_global_state())
+        if self.should_log:  # Check this early b/c repr_global_state is expensive
+            self.log_string(self.repr_global_state())
         player.take_turn()
 
     def run_game(self):
@@ -489,7 +211,9 @@ class Game:
 ==============================
 """
         )
-        self.log_string(self.repr_global_state())
+
+        if self.should_log:  # Check this early b/c repr_global_state is expensive
+            self.log_string(self.repr_global_state())
 
         if self.fails >= 3:
             self.log_string("You hit three fails, you lose! Good day sir.")
@@ -502,7 +226,7 @@ class Game:
 
     def repr_played_cards(self):
         repr = "Played cards:\n"
-        for s in self.get_suits():
+        for s in self.suits:
             repr += "  - {}: {}\n".format(str(s), len(self.played_cards[s]))
         return repr
 
@@ -569,6 +293,7 @@ Simulations for {} {}
         results = []
         for i in range(player_min, player_max + 1):
             scores = []
+            wasted_discard_pcts = []
             for _ in range(num_games):
                 g = Game(
                     i,
@@ -578,6 +303,7 @@ Simulations for {} {}
                     log_file=log_file,
                 )
                 scores.append(g.run_game())
+                wasted_discard_pcts.append(g.wasted_discards / g.current_turn)
             results.append(
                 [
                     i,
@@ -587,13 +313,23 @@ Simulations for {} {}
                     percentile(scores, 90),
                     scores.count(PERFECT_SCORE),
                     round(std(scores), 2),
+                    round(mean(wasted_discard_pcts) * 100, 2),
                 ]
             )
 
         result_table = (
             tabulate(
                 results,
-                headers=["Players", "Mean", "P10", "P50", "P90", "Perfect", "std"],
+                headers=[
+                    "Players",
+                    "Mean",
+                    "P10",
+                    "P50",
+                    "P90",
+                    "Perfect",
+                    "std",
+                    "Wasted discard %",
+                ],
                 tablefmt="pretty",
             )
             + "\n"
