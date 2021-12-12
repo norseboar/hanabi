@@ -121,17 +121,21 @@ class QueuePlayer(Player):
         for c in self.play_queue:
             c.apply_hint(hint)
 
-        matched_card = False
-        new_play_queue = self.play_queue.copy()
-        new_discard_queue = self.discard_queue.copy()
+        target_card = None
 
         for c in self.discard_queue:
             hint_applies = c.apply_hint(hint)
-            if not matched_card and hint_applies:
-                matched_card = True
+            if not target_card and hint_applies:
+                target_card = c
 
-                new_play_queue.append(c)
-                new_discard_queue.remove(c)
+        self.act_on_target(target_card, hint)
+
+    def act_on_target(self, target_card, _):
+        new_play_queue = self.play_queue.copy()
+        new_discard_queue = self.discard_queue.copy()
+
+        new_play_queue.append(target_card)
+        new_discard_queue.remove(target_card)
 
         self.play_queue = new_play_queue
         self.discard_queue = new_discard_queue
