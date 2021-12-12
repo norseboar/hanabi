@@ -20,9 +20,6 @@ class Card:
     def __repr__(self):
         return "{} {}".format(self.suit, self.number)
 
-    def __eq__(self, other):
-        return self.suit == other.suit and self.number == other.number
-
     def match_hint(self, hint):
         if hint.type == Hint.TYPE_SUIT:
             return self.suit == hint.value
@@ -32,11 +29,13 @@ class Card:
     def apply_hint(self, hint):
         if hint.type == Hint.TYPE_SUIT and self.suit == hint.value:
             assert (self.hinted_suit is None) or (self.hinted_suit == hint.value)
+            assert hint.value == self.suit
             self.hinted_suit = hint.value
             return True
 
         if hint.type == Hint.TYPE_NUMBER and self.number == hint.value:
             assert (self.hinted_number is None) or (self.hinted_number == hint.value)
+            assert hint.value == self.number
             self.hinted_number = hint.value
             return True
 

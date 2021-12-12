@@ -1,5 +1,9 @@
 {
     "python.analysis.extraPaths": [
-        "/Users/reed/.pyenv/versions/3.10.0/lib/python3.10/site-packages"
+        "/Users/reed/.pyenv/versions/3.10.0/lib/python3.10/site-packages",
+        "./players"
+    ],
+    "editor.rulers": [
+        88 // This is what Black uses, so it's what I use
     ]
 }
