@@ -1,5 +1,7 @@
 #!/usr/bin/python
 from collections import defaultdict
+import multiprocessing as mp
+from multiprocessing import process
 
 import click
 from numpy import mean
@@ -15,7 +17,11 @@ SEARCH_INTERVAL = 1
 @click.command()
 @click.option("--trials", "-t", type=click.INT)
 @click.option("--parameter", "-p", "params", multiple=True)
-def find_optimal_params(trials, params):
+@click.option("--process-num", default=6)
+def find_optimal_params(trials, params, process_num):
+    assert process_num <= mp.cpu_count()
+    pool = mp.Pool(process_num)
+
     best_score = -2
     best_weights = None
 
@@ -41,28 +47,28 @@ def find_optimal_params(trials, params):
             neighbor_weights.append(new_weights)
 
         for w in neighbor_weights:
-            score = score_weights(w, trials)
+            click.echo("Trying weights {}".format(w))
+            trial_args = [w for _ in range(trials)]
+            scores = pool.map_async(score_weights, trial_args).get()
+            score = mean(list(scores))
+            click.echo("Score is {}".format(score))
             if score > new_best_score:
                 new_best_score = score
                 new_best_weights = w
 
+    pool.close()
     click.echo("Best score: {}".format(best_score))
     click.echo("Best weights: {}".format(best_weights))
 
 
-def score_weights(weights, num_games):
-    click.echo("Trying weights {}".format(weights))
-    scores = []
-    for _ in range(num_games):
-        g = Game(
-            3,
-            "INFO",
-            should_print=False,
-            weights=weights,
-        )
-        scores.append(g.run_game())
-    click.echo("Score is {}".format(mean(scores)))
-    return mean(scores)
+def score_weights(weights):
+    g = Game(
+        3,
+        "INFO",
+        should_print=False,
+        weights=weights,
+    )
+    return g.run_game()
 
 
 if __name__ == "__main__":
