@@ -1,9 +1,10 @@
 class Player:
     """Abstract class for Players. Any new strategy can inherit this."""
 
-    def __init__(self, game, player_number):
+    def __init__(self, game, player_number, weights):
         self.game = game
         self.player_number = player_number
+        self.weights = weights
 
     def __repr__(self):
         s = "Player {}\n".format(self.player_number)

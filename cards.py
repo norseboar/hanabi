@@ -11,9 +11,10 @@ class Suit(Enum):
 
 
 class Card:
-    def __init__(self, suit, number):
+    def __init__(self, suit, number, game):
         self.suit = suit
         self.number = number
+        self.game = game
         self.hinted_suit = None
         self.hinted_number = None
 
@@ -28,14 +29,17 @@ class Card:
 
     def apply_hint(self, hint):
         if hint.type == Hint.TYPE_SUIT and self.suit == hint.value:
-            assert (self.hinted_suit is None) or (self.hinted_suit == hint.value)
-            assert hint.value == self.suit
+            self.game.assert_(
+                (self.hinted_suit is None) or (self.hinted_suit == hint.value)
+            )
             self.hinted_suit = hint.value
             return True
 
         if hint.type == Hint.TYPE_NUMBER and self.number == hint.value:
-            assert (self.hinted_number is None) or (self.hinted_number == hint.value)
-            assert hint.value == self.number
+            self.game.assert_(
+                (self.hinted_number is None) or (self.hinted_number == hint.value)
+            )
+            self.game.assert_(hint.value == self.number)
             self.hinted_number = hint.value
             return True
 
@@ -46,14 +50,21 @@ class Hint:
     TYPE_SUIT = "TYPE_SUIT"
     TYPE_NUMBER = "TYPE_NUMBER"
 
-    PURPOSE_PLAY = "PURPOSE_PLAY"
-    PURPOSE_PROTECT = "PURPOSE_PROTECT"
+    def __repr__(self):
+        return "To {}: {} {} {} | Targeting {}".format(
+            self.player.player_number,
+            self.type,
+            self.value,
+            self.purpose,
+            self.target_card,
+        )
 
-    def __init__(self, player, type, value, target_card=None, purpose=None):
-        assert type == Hint.TYPE_SUIT or type == Hint.TYPE_NUMBER
+    def __init__(self, player, type, value, game, target_card=None, purpose=None):
+        game.assert_(type == Hint.TYPE_SUIT or type == Hint.TYPE_NUMBER)
 
         self.player = player
         self.type = type
         self.value = value
+        self.game = game
         self.target_card = target_card
         self.purpose = purpose

@@ -1,2 +1,4 @@
 game_logs/*
 !game_logs/.gitkeep
+**/__pycache__
+*.pyc

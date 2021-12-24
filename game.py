@@ -1,3 +1,4 @@
+from collections import defaultdict
 import random
 import sys
 
@@ -8,6 +9,8 @@ from players import STRATEGIES
 
 
 class Game:
+    MAX_NUMBER = 5
+
     def __init__(
         self,
         num_players,
@@ -16,6 +19,7 @@ class Game:
         should_print=True,
         log_file=None,
         seed=None,
+        weights=None,
     ):
         self.num_players = num_players
         self.strategy = strategy
@@ -24,6 +28,9 @@ class Game:
         self.log_file = log_file
         self.should_log = self.should_print or self.log_file
         self.suits = [s for s in Suit if self.use_rainbow or s != Suit.RAINBOW]
+        self.weights = weights
+
+        self.fatal_discards = 0
 
         if seed:
             self.seed = seed
@@ -49,27 +56,25 @@ class Game:
         self.init_deck()
 
         for p in self.players:
-            for i in range(5):
+            for i in range(5 if num_players < 4 else 4):
                 p.add_card(self.deck.pop())
 
     def init_players(self, num_players, strategy):
         self.players = []
         for i in range(num_players):
-            assert strategy in STRATEGIES
-            self.players.append(STRATEGIES[strategy](self, i))
+            self.assert_(strategy in STRATEGIES)
+            self.players.append(STRATEGIES[strategy](self, i, self.weights))
 
     def init_deck(self):
         deck = []
-        self.cards_remaining = {}
         for suit in self.suits:
             for i in range(3):
-                deck.append(Card(suit, 1))
+                deck.append(Card(suit, 1, self))
             for i in range(2):
-                deck.append(Card(suit, 2))
-                deck.append(Card(suit, 3))
-                deck.append(Card(suit, 4))
-            deck.append(Card(suit, 5))
-            self.cards_remaining.update({suit: {1: 3, 2: 2, 3: 2, 4: 2, 5: 1}})
+                deck.append(Card(suit, 2, self))
+                deck.append(Card(suit, 3, self))
+                deck.append(Card(suit, 4, self))
+            deck.append(Card(suit, 5, self))
         random.shuffle(deck)
 
         self.deck = deck
@@ -98,9 +103,9 @@ class Game:
         self.log_string("Discarded {}".format(card))
         if self.hints == 8:
             self.wasted_discards += 1
+
         self.discarded_cards.append(card)
         self.increment_hints()
-        self.cards_remaining[card.suit][card.number] -= 1
 
     def give_hint(self, hint):
         self.log_string(
@@ -116,7 +121,7 @@ class Game:
             self.hints += 1
 
     def decrement_hints(self):
-        assert self.hints > 0
+        self.assert_(self.hints > 0)
         self.hints -= 1
 
     def get_score(self):
@@ -132,6 +137,38 @@ class Game:
                 continue
             needed_numbers[s] = self.played_numbers[s] + 1
         return needed_numbers
+
+    def get_remaining_card_list(self):
+        remaining_card_list = self.deck.copy()
+
+        for p in self.players:
+            remaining_card_list += p.get_hand()
+
+        return remaining_card_list
+
+    def get_remaining_cards(self):
+        remaining_card_list = self.get_remaining_card_list()
+        remaining_cards = {}
+        for s in self.suits:
+            remaining_cards[s] = defaultdict(int)
+
+        for c in remaining_card_list:
+            remaining_cards[c.suit][c.number] += 1
+
+    def get_endangered_cards(self):
+        remaining_cards = self.get_remaining_cards()
+        needed_numbers = self.get_needed_numbers()
+
+        endangered_cards = defaultdict(list)
+        for suit, numbers in remaining_cards.items():
+            for number, count in numbers.items():
+                if (
+                    count == 1
+                    and suit in needed_numbers
+                    and number > needed_numbers[suit]
+                ):
+                    endangered_cards[suit].append(number)
+        return endangered_cards
 
     def run_turn(self, player, turn_number):
         self.log_string(
@@ -192,7 +229,7 @@ class Game:
         elif sum(self.played_numbers.values()) >= 5 * len(self.suits):
             self.log_string("You got a perfect score!!")
         else:
-            assert False
+            self.assert_(False)
 
         return self.get_score()
 
@@ -226,6 +263,11 @@ Current player: {}
 
     def log_string(self, s):
         log_string(s, self.log_file, self.should_print)
+
+    def assert_(self, condition):
+        assert condition, "{}-player {} Seed {} Turn {}".format(
+            self.num_players, self.strategy, self.seed, self.current_turn
+        )
 
 
 def log_string(s, log_file, should_print):

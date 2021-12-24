@@ -46,7 +46,9 @@ class QueuePlayer(Player):
         unknown_to_play = [c for c in groups["unknown"] if c in self.play_queue]
         unknown_to_discard = [c for c in groups["unknown"] if c in self.discard_queue]
 
-        assert set(groups["unknown"]) == set(unknown_to_discard + unknown_to_play)
+        self.game.assert_(
+            set(groups["unknown"]) == set(unknown_to_discard + unknown_to_play)
+        )
 
         new_play_queue = unknown_to_play + groups["can_play_now"]
         new_discard_queue = (
@@ -55,9 +57,9 @@ class QueuePlayer(Player):
 
         needed_numbers = self.game.get_needed_numbers()
         for c in new_play_queue:
-            assert c.hinted_suit or c.hinted_number
+            self.game.assert_(c.hinted_suit or c.hinted_number)
             if c.hinted_suit:
-                assert c.suit in needed_numbers
+                self.game.assert_(c.suit in needed_numbers)
 
         self.play_queue = sorted(
             new_play_queue,
@@ -82,7 +84,7 @@ class QueuePlayer(Player):
                 elif c.number == needed_numbers[c.suit]:
                     can_play_now.append(c)
                 else:
-                    assert c.number > needed_numbers[c.suit]
+                    self.game.assert_(c.number > needed_numbers[c.suit])
                     can_play_later.append(c)
             elif c.hinted_suit:
                 if c.suit not in needed_numbers:
@@ -131,6 +133,9 @@ class QueuePlayer(Player):
         self.act_on_target(target_card, hint)
 
     def act_on_target(self, target_card, _):
+        self.move_to_play_queue(target_card)
+
+    def move_to_play_queue(self, target_card):
         new_play_queue = self.play_queue.copy()
         new_discard_queue = self.discard_queue.copy()
 

@@ -34,7 +34,11 @@ class BasicQueuePlayer(QueuePlayer):
                 if target_card == matching_suits[0]:
                     hints.append(
                         Hint(
-                            p, Hint.TYPE_SUIT, target_card.suit, target_card=target_card
+                            p,
+                            Hint.TYPE_SUIT,
+                            target_card.suit,
+                            self.game,
+                            target_card=target_card,
                         )
                     )
 
@@ -49,6 +53,7 @@ class BasicQueuePlayer(QueuePlayer):
                             p,
                             Hint.TYPE_NUMBER,
                             target_card.number,
+                            self.game,
                             target_card=target_card,
                         )
                     )

@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from collections import defaultdict
 from datetime import datetime
 
 import click
@@ -14,10 +15,28 @@ LOG_PATH = "/Users/reed/hanabi/game_logs/"
 @click.argument("num_games", type=click.INT)
 @click.option("--strategy", "-s", "strategies", multiple=True)
 @click.option("--create-logs", is_flag=True, default=False)
+@click.option("--verbose", is_flag=True, default=False)
 @click.option("--use-rainbow", is_flag=True, default=False)
 @click.option("--num-players", "-n", multiple=True, default=[2])
 @click.option("--seed", type=click.INT, default=None)
-def run_simulations(num_games, strategies, create_logs, use_rainbow, num_players, seed):
+@click.option(
+    "--weight",
+    "-w",
+    "param_weights",
+    multiple=True,
+    nargs=2,
+    type=click.Tuple([str, float]),
+)
+def run_simulations(
+    num_games,
+    strategies,
+    create_logs,
+    verbose,
+    use_rainbow,
+    num_players,
+    seed,
+    param_weights,
+):
     PERFECT_SCORE = (6 if use_rainbow else 5) * 5
     log_file_name = (
         LOG_PATH + "hanabi_log_" + datetime.now().isoformat(timespec="seconds") + ".txt"
@@ -27,14 +46,18 @@ def run_simulations(num_games, strategies, create_logs, use_rainbow, num_players
     if create_logs:
         log_file = open(log_file_name, "w")
 
-    for strategy in strategies:
+    weights = defaultdict(int)
+    for p, w in param_weights:
+        weights[p] = w
+
+    for n in num_players:
         log_string(
             """
 ===========================================================================
-Simulations for {} {}
+Simulations for {} players {}
 ===========================================================================
             """.format(
-                strategy,
+                n,
                 "with rainbow" if use_rainbow else "no rainbow",
                 log_file,
                 should_print=True,
@@ -44,7 +67,7 @@ Simulations for {} {}
         )
 
         results = []
-        for n in num_players:
+        for strategy in strategies:
             scores = []
             wasted_discard_pcts = []
             for _ in range(num_games):
@@ -52,15 +75,16 @@ Simulations for {} {}
                     n,
                     strategy,
                     use_rainbow,
-                    should_print=False,
+                    should_print=verbose,
                     log_file=log_file,
                     seed=seed,
+                    weights=weights,
                 )
                 scores.append(g.run_game())
                 wasted_discard_pcts.append(g.wasted_discards / g.current_turn)
             results.append(
                 [
-                    n,
+                    strategy,
                     round(mean(scores), 2),
                     percentile(scores, 10),
                     percentile(scores, 50),
@@ -75,7 +99,7 @@ Simulations for {} {}
             tabulate(
                 results,
                 headers=[
-                    "Players",
+                    "Strategy",
                     "Mean",
                     "P10",
                     "P50",
